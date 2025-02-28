@@ -1,7 +1,7 @@
 import cv2
 import time
 import numpy as np
-
+from utils.labels import coco_category_index
 
 
 def resize_preserving_ar(image, new_shape):
@@ -44,6 +44,116 @@ def resize_preserving_ar(image, new_shape):
     return res_image, pad
 
 
+def delete_items_from_array_aux(arr, i):
+    """
+    Auxiliary function that delete the item at a certain index from a numpy array
+
+    Args:
+        :arr (numpy.ndarray): Array of array where each element correspond to the four coordinates of bounding box expressed in percentage
+        :i (int): Index of the element to be deleted
+
+    Returns:
+        :arr_ret: the array without the element at index i
+    """
+
+    aux = arr.tolist()
+    aux.pop(i)
+    arr_ret = np.array(aux)
+    return arr_ret
+
+
+def filter_detections(detections, min_score_thresh, shape, new_old_shape=None):
+    """
+    Filter the detections based on a minimum threshold value and modify the bounding box and the key points coordinates if the image was resized for the detection
+
+    Args:
+        :detections (dict): The dictionary that outputs the model
+        :min_score_thresh (float): The minimum score for the detections (detections with a score lower than this value will be discarded)
+        :shape (tuple): The shape of the image
+        :new_old_shape (tuple): The first element represents the right padding (applied by resize_preserving_ar() function);
+                                the second element represents the bottom padding (applied by resize_preserving_ar() function) and
+                                the third element is a tuple that is the shape of the image after resizing without the padding (this is useful for
+                                the coordinates changes that we have to do)
+            (default is None)
+
+    Returns:
+        :filtered_detections (dict): dictionary with detection classes, key points coordinates and key points scores ordered by score in descending order
+    """
+    allowed_categories = ["person"]
+
+    im_height, im_width, _ = shape
+    center_net = False
+
+    classes = detections['detection_classes'][0].numpy().astype(np.int32)
+    scores = detections['detection_scores'][0].numpy()
+    key_points_score = None
+    key_points = None
+
+    if 'detection_keypoint_scores' in detections:
+        key_points_score = detections['detection_keypoint_scores'][0].numpy()
+        key_points = detections['detection_keypoints'][0].numpy()
+        center_net = True
+
+    sorted_index = np.argsort(scores)[::-1]
+    scores = scores[sorted_index]
+    classes = classes[sorted_index]
+
+    i = 0
+    while i < 10000:
+        if scores[i] < min_score_thresh:  # sorted
+            break
+        if coco_category_index[classes[i]]["name"] in allowed_categories:
+            i += 1
+        else:
+            scores = np.delete(scores, i)
+            classes = np.delete(classes, i)
+            if center_net:
+                key_points_score = delete_items_from_array_aux(key_points_score, i)
+                key_points = delete_items_from_array_aux(key_points, i)
+
+    filtered_detections = dict()
+    filtered_detections['detection_classes'] = classes[:i]
+
+    if new_old_shape:
+        if center_net:
+            rescaled_key_points = key_points[:i]
+            rescale_key_points(rescaled_key_points, new_old_shape, im_width, im_height)
+            filtered_detections['detection_keypoint_scores'] = key_points_score[:i]
+            filtered_detections['detection_keypoints'] = rescaled_key_points
+    else:
+        filtered_detections['detection_keypoint_scores'] = key_points_score[:i]
+        filtered_detections['detection_keypoints'] = key_points[:i]
+
+    return filtered_detections
+
+
+def detect(model, image, min_score_thresh, new_old_shape):
+    """
+    Detect objects in the image running the model
+
+    Args:
+        :model (tensorflow.python.saved_model): The Tensorflow object detection model
+        :image (numpy.ndarray): The image that is given as input to the object detection model
+        :min_score_threshold (float): The minimum score for the detections (detections with a score lower than this value will be discarded)
+        :new_old_shape (tuple): The first element represents the right padding (applied by resize_preserving_ar() function);
+                                the second element represents the bottom padding (applied by resize_preserving_ar() function) and
+                                the third element is a tuple that is the shape of the image after resizing without the padding (this is useful for
+                                the coordinates changes)
+
+    Returns:
+        :detections (dict): dictionary with detection scores, classes, centroids and bounding box coordinates ordered by score in descending order
+        :inference_time (float): inference time for one image (expressed in seconds)
+    """
+    image = np.array(image).astype(np.uint8)
+    input_tensor = np.expand_dims(image, axis=0)
+
+    start_time = time.time()
+    det = model(input_tensor)
+    end_time = time.time()
+
+    detections = filter_detections(det, min_score_thresh, image.shape, new_old_shape)
+    inference_time = end_time - start_time
+    return detections, inference_time
 
 
 def rescale_key_points(key_points, pad, im_width, im_height):

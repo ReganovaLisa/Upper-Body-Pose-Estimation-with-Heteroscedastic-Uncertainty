@@ -118,5 +118,3 @@ def draw_axis(yaw, pitch, roll, image, tdx=None, tdy=None, length_axis=50, yaw_u
         cv2.line(res_image, (int(tdx), int(tdy)), (int(x3), int(y3)), (255, 0, 0), 2)
 
     return res_image
-
-
