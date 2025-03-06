@@ -1,0 +1,8 @@
+{
+    "mean_yaw_mae": 12.251757621765137,
+    "mean_pitch_mae": 17.30474281311035,
+    "mean_roll_mae": 18.61501693725586,
+    "mean_unc_yaw_deg": 3.2052390575408936,
+    "mean_unc_pitch_deg": 4.165772438049316,
+    "mean_unc_roll_deg": 4.087658882141113
+}
